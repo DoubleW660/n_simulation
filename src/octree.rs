@@ -6,9 +6,39 @@ const CAPACITY: usize = 1; // Max bodies per node before subdivision
 struct Body {
     position: Vec3,
     velocity: Vec3,
+    acceleration: Vec3,
     mass: f32,
     index: usize, // Original index in bodies array
 }
+
+// Physics integration using Velocity Verlet method
+impl Body {
+    fn new(position: Vec3, velocity: Vec3, mass: f32, index: usize) -> Self {
+        Body {
+            position,
+            velocity,
+            acceleration: Vec3::ZERO,
+            mass,
+            index,
+        }
+    }
+
+    // Update velocity by half-step (for Velocity Verlet)
+    fn update_velocity_half(&mut self, dt: f32) {
+        self.velocity += self.acceleration * (dt / 2.0);
+    }
+
+    // Update position
+    fn update_position(&mut self, dt: f32) {
+        self.position += self.velocity * dt;
+    }
+
+    // Apply force and calculate acceleration
+    fn apply_force(&mut self, force: Vec3) {
+        self.acceleration = force / self.mass;
+    }
+}
+
 #[derive(Clone)]
 struct BoundingBox {
     center: Vec3,
@@ -34,7 +64,7 @@ impl BoundingBox {
     }
 
     fn get_octant_box(&self, octant: usize) -> BoundingBox {
-        let quarter = self.half_size / 2;
+        let quarter = self.half_size / 2.0;
         let offset_x = if octant & 4 != 0 { quarter } else { -quarter };
         let offset_y = if octant & 2 != 0 { quarter } else { -quarter };
         let offset_z = if octant & 1 != 0 { quarter } else { -quarter };
@@ -56,7 +86,7 @@ struct OctreeNode {
     boundary: BoundingBox,
     center_of_mass: Vec3,
     total_mass: f32,
-    body: Option<usize>,
+    body: Option<Body>,
     children: Option<Box<[OctreeNode; 8]>>,   
 } 
 
@@ -117,13 +147,13 @@ impl OctreeNode {
     
 
     // Subdivide on greater than 1 body per node
-    fn subdivide(&self) {
+    fn subdivide(&mut self) {
         // Ensure we are not subdividing an empty Node
         if !self.is_leaf() {
             return; 
         }
 
-        let mut children: [OctreeNode; 8] = [
+        let children: [OctreeNode; 8] = [
             OctreeNode::new(self.boundary.get_octant_box(0)),
             OctreeNode::new(self.boundary.get_octant_box(1)),
             OctreeNode::new(self.boundary.get_octant_box(2)),
@@ -221,48 +251,4 @@ impl OctreeNode {
     }
 }
 
-// Example usage
-fn main() {
-    // Create root octree node with initial boundary
-    let boundary = BoundingBox {
-        center: Vec3::ZERO,
-        half_size: 100.0,
-    };
-    
-    let mut root = OctreeNode::new(boundary);
 
-    // Create some test bodies
-    let bodies = vec![
-        Body {
-            position: Vec3::new(10.0, 10.0, 10.0),
-            velocity: Vec3::ZERO,
-            mass: 1.0,
-            index: 0,
-        },
-        Body {
-            position: Vec3::new(-10.0, -10.0, -10.0),
-            velocity: Vec3::ZERO,
-            mass: 1.0,
-            index: 1,
-        },
-        Body {
-            position: Vec3::new(20.0, 20.0, 20.0),
-            velocity: Vec3::ZERO,
-            mass: 2.0,
-            index: 2,
-        },
-    ];
-
-    // Insert bodies into octree
-    for body in bodies.iter() {
-        root.insert_body(body.clone());
-    }
-
-    // Calculate force on first body
-    let theta = 0.5;
-    let softening = 0.1;
-    let g = 6.674e-11; // Gravitational constant (or use 1.0 for simpler units)
-    
-    let force = root.calculate_force(&bodies[0], theta, softening, g);
-    println!("Force on body 0: {:?}", force);
-}
