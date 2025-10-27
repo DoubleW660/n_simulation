@@ -6,8 +6,8 @@ const CAPACITY: usize = 1; // Max bodies per node before subdivision
 struct Body {
     position: Vec3,
     velocity: Vec3,
-    acceleration: Vec3,
     mass: f32,
+    index: usize, // Original index in bodies array
 }
 #[derive(Clone)]
 struct BoundingBox {
@@ -62,6 +62,7 @@ struct OctreeNode {
 
 impl OctreeNode {
 
+    // Constructor 
     fn new(boundary: BoundingBox) -> Self {
         OctreeNode { 
             boundary,
@@ -71,21 +72,197 @@ impl OctreeNode {
             children: None }
     }
 
+    // Return If Leaf True
     fn is_leaf(&self) -> bool {
         self.children.is_none()
     }
 
+    // Insert body into OctreeNode
     fn insert_body(&mut self, new_body: Body) -> bool {
         //Confirm it is within the box
         if !self.boundary.contains(new_body.position) {
             return false
         }
 
+        // Case 1 Is leaf and No Body
         if self.is_leaf() && self.body.is_none(){
-            self.body = new_body;
-            
+            self.body = Some(new_body.clone());
+            self.center_of_mass = new_body.position;
+            self.total_mass = new_body.mass;
+            return true            
+        } 
+        
+        // Case 2 Is leaf adding body too
+        if  self.is_leaf() && self.body.is_some(){
+            // Set body to new
+            let existing_body = self.body.take().unwrap();
+            self.subdivide();
+
+            let octant = self.boundary.get_octant(new_body.position);
+            self.children.as_mut().unwrap()[octant].insert_body(existing_body);
         }
 
+        // Case 3 Internal Node with Children
+        if !self.is_leaf(){
+            let octant = self.boundary.get_octant(new_body.position);
+            self.children.as_mut().unwrap()[octant].insert_body(new_body);
+        
+        }
+
+        self.calc_center_mass();
+
+        true
+        }
+
+    
+
+    // Subdivide on greater than 1 body per node
+    fn subdivide(&self) {
+        // Ensure we are not subdividing an empty Node
+        if !self.is_leaf() {
+            return; 
+        }
+
+        let mut children: [OctreeNode; 8] = [
+            OctreeNode::new(self.boundary.get_octant_box(0)),
+            OctreeNode::new(self.boundary.get_octant_box(1)),
+            OctreeNode::new(self.boundary.get_octant_box(2)),
+            OctreeNode::new(self.boundary.get_octant_box(3)),
+            OctreeNode::new(self.boundary.get_octant_box(4)),
+            OctreeNode::new(self.boundary.get_octant_box(5)),
+            OctreeNode::new(self.boundary.get_octant_box(6)),
+            OctreeNode::new(self.boundary.get_octant_box(7)),
+        ];
+        
+        self.children = Some(Box::new(children));
     }
 
+    fn calc_center_mass(&mut self){
+
+        
+        // Case 1 Is leaf and No Body
+        if self.is_leaf(){
+            if let Some(ref body) = self.body {
+                self.center_of_mass = body.position;
+                self.total_mass = body.mass;
+            }else {
+                self.center_of_mass = Vec3::ZERO;
+                self.total_mass = 0.0;
+            }
+            return
+        } 
+
+        let mut total_mass = 0.0;
+        let mut weighted_pos = Vec3::ZERO;
+
+        // Case 3 Internal Node with Children
+        if let Some(ref children) = self.children {
+            for child in children.iter() {
+                if child.total_mass > 0.00 {
+                    weighted_pos += child.center_of_mass * child.total_mass;
+                    total_mass += child.total_mass;
+                }
+            }
+        }
+            
+        if total_mass > 0.0 {
+            self.center_of_mass = weighted_pos / total_mass;
+            self.total_mass = total_mass;
+        } else {
+            self.center_of_mass = Vec3::ZERO;
+            self.total_mass = 0.0;
+        }
+
+
+        }
+
+        // Helper function to calculate force on a body using Barnes-Hut
+    fn calculate_force(&self, body: &Body, theta: f32, softening: f32, g: f32) -> Vec3 {
+        // Don't calculate force on itself
+        if self.is_leaf() {
+            if let Some(ref node_body) = self.body {
+                if node_body.index == body.index {
+                    return Vec3::ZERO;
+                }
+            }
+        }
+
+        // If node is empty
+        if self.total_mass == 0.0 {
+            return Vec3::ZERO;
+        }
+
+        let r = self.center_of_mass - body.position;
+        let distance = r.length();
+
+        // Barnes-Hut criterion: s/d < theta
+        let s = self.boundary.half_size * 2.0; // Size of the region
+        
+        if self.is_leaf() || (s / distance < theta) {
+            // Treat as single body
+            if distance < 0.0001 {
+                return Vec3::ZERO; // Avoid division by zero
+            }
+            
+            let distance_sq = distance * distance + softening * softening;
+            let force_magnitude = g * body.mass * self.total_mass / distance_sq;
+            return r.normalize() * force_magnitude;
+        }
+
+        // Otherwise, recurse into children
+        let mut force = Vec3::ZERO;
+        if let Some(ref children) = self.children {
+            for child in children.iter() {
+                force += child.calculate_force(body, theta, softening, g);
+            }
+        }
+
+        force
+    }
+}
+
+// Example usage
+fn main() {
+    // Create root octree node with initial boundary
+    let boundary = BoundingBox {
+        center: Vec3::ZERO,
+        half_size: 100.0,
+    };
+    
+    let mut root = OctreeNode::new(boundary);
+
+    // Create some test bodies
+    let bodies = vec![
+        Body {
+            position: Vec3::new(10.0, 10.0, 10.0),
+            velocity: Vec3::ZERO,
+            mass: 1.0,
+            index: 0,
+        },
+        Body {
+            position: Vec3::new(-10.0, -10.0, -10.0),
+            velocity: Vec3::ZERO,
+            mass: 1.0,
+            index: 1,
+        },
+        Body {
+            position: Vec3::new(20.0, 20.0, 20.0),
+            velocity: Vec3::ZERO,
+            mass: 2.0,
+            index: 2,
+        },
+    ];
+
+    // Insert bodies into octree
+    for body in bodies.iter() {
+        root.insert_body(body.clone());
+    }
+
+    // Calculate force on first body
+    let theta = 0.5;
+    let softening = 0.1;
+    let g = 6.674e-11; // Gravitational constant (or use 1.0 for simpler units)
+    
+    let force = root.calculate_force(&bodies[0], theta, softening, g);
+    println!("Force on body 0: {:?}", force);
 }
