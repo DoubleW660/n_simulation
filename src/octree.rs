@@ -1,43 +1,7 @@
 ﻿use glam::Vec3;
+use crate::body::Body;
 
 const CAPACITY: usize = 1; // Max bodies per node before subdivision
-
-#[derive(Clone)]
-struct Body {
-    position: Vec3,
-    velocity: Vec3,
-    acceleration: Vec3,
-    mass: f32,
-    index: usize, // Original index in bodies array
-}
-
-// Physics integration using Velocity Verlet method
-impl Body {
-    fn new(position: Vec3, velocity: Vec3, mass: f32, index: usize) -> Self {
-        Body {
-            position,
-            velocity,
-            acceleration: Vec3::ZERO,
-            mass,
-            index,
-        }
-    }
-
-    // Update velocity by half-step (for Velocity Verlet)
-    fn update_velocity_half(&mut self, dt: f32) {
-        self.velocity += self.acceleration * (dt / 2.0);
-    }
-
-    // Update position
-    fn update_position(&mut self, dt: f32) {
-        self.position += self.velocity * dt;
-    }
-
-    // Apply force and calculate acceleration
-    fn apply_force(&mut self, force: Vec3) {
-        self.acceleration = force / self.mass;
-    }
-}
 
 #[derive(Clone)]
 struct BoundingBox {
@@ -46,7 +10,6 @@ struct BoundingBox {
 }
 
 impl BoundingBox {
-
     // Does this bounding box contain the point
     fn contains(&self, point: Vec3) -> bool {
         // Returns if the point is contained within the 6 sides of the cube
@@ -78,8 +41,6 @@ impl BoundingBox {
     }
 }
 
-
-
 struct OctreeNode {
     boundary: BoundingBox,
     center_of_mass: Vec3,
@@ -89,7 +50,6 @@ struct OctreeNode {
 } 
 
 impl OctreeNode {
-
     // Constructor 
     fn new(boundary: BoundingBox) -> Self {
         OctreeNode { 
@@ -106,7 +66,7 @@ impl OctreeNode {
     }
 
     fn insert_body(&mut self, new_body: Body) -> bool {
-    // Confirm it is within the box
+        // Confirm it is within the box
         if !self.boundary.contains(new_body.position) {
             return false;
         }
@@ -119,7 +79,7 @@ impl OctreeNode {
             return true;
         }
 
-    // Case 2: Leaf node with a body - need to subdivide
+        // Case 2: Leaf node with a body - need to subdivide
         if self.is_leaf() && self.body.is_some() {
             let existing_body = self.body.take().unwrap();
             self.subdivide();
@@ -151,8 +111,6 @@ impl OctreeNode {
         false
     }
 
-    
-
     // Subdivide on greater than 1 body per node
     fn subdivide(&mut self) {
         // Ensure we are not subdividing an empty Node
@@ -174,15 +132,13 @@ impl OctreeNode {
         self.children = Some(Box::new(children));
     }
 
-    fn calc_center_mass(&mut self){
-
-        
+    fn calc_center_mass(&mut self) {
         // Case 1 Is leaf and No Body
-        if self.is_leaf(){
+        if self.is_leaf() {
             if let Some(ref body) = self.body {
                 self.center_of_mass = body.position;
                 self.total_mass = body.mass;
-            }else {
+            } else {
                 self.center_of_mass = Vec3::ZERO;
                 self.total_mass = 0.0;
             }
@@ -209,17 +165,13 @@ impl OctreeNode {
             self.center_of_mass = Vec3::ZERO;
             self.total_mass = 0.0;
         }
+    }
 
-
-        }
-
-        // Helper function to calculate force on a body using Barnes-Hut
+    // Helper function to calculate force on a body using Barnes-Hut
     fn calculate_force(&self, body: &Body, theta: f32, softening: f32, g: f32) -> Vec3 {
-           
         // Don't calculate force on itself
         if self.is_leaf() {
-           if let Some(ref node_body) = self.body {
-               
+            if let Some(ref node_body) = self.body {
                 if node_body.index == body.index {
                     return Vec3::ZERO;
                 }
@@ -257,18 +209,17 @@ impl OctreeNode {
             }
         }
 
-    force
-}
+        force
+    }
 }
 
-fn update_simulation(bodies: &mut Vec<Body>, dt: f32, theta: f32, softening: f32, g: f32) {
-    
+pub fn update_simulation_step(bodies: &mut Vec<Body>, dt: f32, theta: f32, softening: f32, g: f32) {
     // HALF STEP Velocity Update
-    for body in bodies.iter_mut(){
+    for body in bodies.iter_mut() {
         body.update_velocity_half(dt);
     }
 
-    //Update Positions
+    // Update Positions
     for body in bodies.iter_mut() {
         body.update_position(dt);
     }
@@ -282,7 +233,7 @@ fn update_simulation(bodies: &mut Vec<Body>, dt: f32, theta: f32, softening: f32
         max_pos = max_pos.max(body.position);
     }
 
-     // Create bounding box with some padding
+    // Create bounding box with some padding
     let center = (min_pos + max_pos) / 2.0;
     let size = (max_pos - min_pos).max_element();
     let half_size = (size / 2.0) * 1.1; // 10% padding
@@ -296,13 +247,13 @@ fn update_simulation(bodies: &mut Vec<Body>, dt: f32, theta: f32, softening: f32
     
     // Insert all bodies into octree
     for body in bodies.iter() {
-        let success = root.insert_body(body.clone());
+        let _success = root.insert_body(body.clone());
     }
 
     // Calculate forces for all bodies
     for body in bodies.iter_mut() {
         let force = root.calculate_force(body, theta, softening, g);
-    body.apply_force(force);
+        body.apply_force(force);
     }
 
     // Half-step velocity update using new acceleration
@@ -311,32 +262,8 @@ fn update_simulation(bodies: &mut Vec<Body>, dt: f32, theta: f32, softening: f32
     }
 }
 
-fn calculate_energy(bodies: &Vec<Body>, g: f32) -> (f32, f32){
-    let mut kinetic = 0.0;
-    let mut potential = 0.0;
-
-    // Kinetic energy
-    for body in bodies.iter() {
-        kinetic += 0.5 * body.mass * body.velocity.length_squared();
-    }
-
-    // Potential energy
-    for i in 0..bodies.len() {
-        for j in (i + 1)..bodies.len() {
-            let r = bodies[i].position - bodies[j].position;
-            let distance = r.length();
-            if distance > 0.0001 {
-                potential -= g * bodies[i].mass * bodies[j].mass / distance;
-            }
-        }
-    }
-
-    (kinetic, potential)
-
-}
-
 // Better two-body orbit - both bodies orbit their common center of mass
-fn create_two_body_orbit() -> Vec<Body> {
+pub fn create_two_body_orbit() -> Vec<Body> {
     let m1 = 100.0_f32;  // Mass of body 1
     let m2 = 1.0_f32;    // Mass of body 2
     let separation = 10.0_f32;
@@ -369,7 +296,7 @@ fn create_two_body_orbit() -> Vec<Body> {
 }
 
 // Create a random particle cloud
-fn create_particle_cloud(num_particles: usize, radius: f32) -> Vec<Body> {
+pub fn create_particle_cloud(num_particles: usize, radius: f32) -> Vec<Body> {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     let mut bodies = Vec::new();
@@ -393,60 +320,4 @@ fn create_particle_cloud(num_particles: usize, radius: f32) -> Vec<Body> {
     }
 
     bodies
-}
-
-// Main function with simulation loop
-pub fn main() {
-    // Simulation parameters
-    let dt = 0.01;           // Time step
-    let theta = 0.5;         // Barnes-Hut threshold
-    let softening = 0.1;     // Softening parameter
-    let g = 1.0;             // Gravitational constant (using 1.0 for simplicity)
-    let num_steps = 1000;    // Number of simulation steps
-
-    // Create initial conditions
-    println!("Creating initial conditions...");
-    let mut bodies = create_two_body_orbit();
-    // Or use a particle cloud:
-    // let mut bodies = create_particle_cloud(100, 50.0);
-
-    println!("Starting simulation with {} bodies", bodies.len());
-    println!("dt={}, theta={}, softening={}, g={}", dt, theta, softening, g);
-    println!();
-
-    // Initial energy
-    let (ke0, pe0) = calculate_energy(&bodies, g);
-    let total_energy_initial = ke0 + pe0;
-    println!("Initial energy: KE={:.6}, PE={:.6}, Total={:.6}", ke0, pe0, total_energy_initial);
-    println!();
-
-    // Run simulation
-    for step in 0..num_steps {
-        update_simulation(&mut bodies, dt, theta, softening, g);
-
-        // Print progress every 100 steps
-        if step % 100 == 0 {
-            let (ke, pe) = calculate_energy(&bodies, g);
-            let total_energy = ke + pe;
-            let energy_error = ((total_energy - total_energy_initial) / total_energy_initial * 100.0).abs();
-            
-            println!("Step {}: KE={:.6}, PE={:.6}, Total={:.6}, Error={:.4}%", 
-                     step, ke, pe, total_energy, energy_error);
-            
-            // Print first body's position
-            println!("  Body 0 position: {:.3}, {:.3}, {:.3}", 
-                     bodies[0].position.x, bodies[0].position.y, bodies[0].position.z);
-        }
-    }
-
-    println!();
-    println!("Simulation complete!");
-    
-    // Final energy
-    let (ke_f, pe_f) = calculate_energy(&bodies, g);
-    let total_energy_final = ke_f + pe_f;
-    let total_error = ((total_energy_final - total_energy_initial) / total_energy_initial * 100.0).abs();
-    
-    println!("Final energy: KE={:.6}, PE={:.6}, Total={:.6}", ke_f, pe_f, total_energy_final);
-    println!("Total energy error: {:.4}%", total_error);
 }
