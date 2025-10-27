@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use crate::body::{Body, BodyMarker};
 use crate::octree::{update_simulation_step, create_two_body_orbit, create_particle_cloud};
+use crate::camera::{CameraController, CameraPlugin};
 
 // Resources for simulation parameters
 #[derive(Resource)]
@@ -35,6 +36,7 @@ pub struct SimulationPlugin;
 impl Plugin for SimulationPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SimulationParams::default())
+            .add_plugins(CameraPlugin)
             .add_systems(Startup, setup)
             .add_systems(Update, (
                 handle_input,
@@ -84,11 +86,14 @@ fn setup(
     commands.insert_resource(Bodies { data: bodies });
 
     // Camera
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 30.0, 50.0)
-            .looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+    commands.spawn((
+        Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 30.0, 50.0)
+                .looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        },
+        CameraController::default(),
+    ));
 
     // Light
     commands.spawn(PointLightBundle {
@@ -111,6 +116,8 @@ fn setup(
     println!("Controls:");
     println!("  SPACE - Pause/Resume");
     println!("  R - Reset simulation");
+    println!("  Right Mouse + Drag - Rotate camera");
+    println!("  Mouse Wheel - Zoom in/out");
 }
 
 fn handle_input(
